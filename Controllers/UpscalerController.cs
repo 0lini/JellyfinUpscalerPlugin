@@ -28,6 +28,7 @@ namespace JellyfinUpscalerPlugin.Controllers
         private readonly UpscalerCore _upscalerCore;
         private readonly VideoProcessor _videoProcessor;
         private readonly CacheManager _cacheManager;
+        private readonly ShaderUpscaler _shaderUpscaler;
 
         /// <summary>
         /// Initializes a new instance of the UpscalerController class.
@@ -39,6 +40,7 @@ namespace JellyfinUpscalerPlugin.Controllers
         /// <param name="upscalerCore">Upscaler core service.</param>
         /// <param name="videoProcessor">Video processor service.</param>
         /// <param name="cacheManager">Cache manager service.</param>
+        /// <param name="shaderUpscaler">Shader upscaler service.</param>
         public UpscalerController(
             ILogger<UpscalerController> logger,
             ILibraryManager libraryManager,
@@ -46,7 +48,8 @@ namespace JellyfinUpscalerPlugin.Controllers
             HardwareBenchmarkService benchmarkService,
             UpscalerCore upscalerCore,
             VideoProcessor videoProcessor,
-            CacheManager cacheManager)
+            CacheManager cacheManager,
+            ShaderUpscaler shaderUpscaler)
         {
             _logger = logger;
             _libraryManager = libraryManager;
@@ -55,6 +58,7 @@ namespace JellyfinUpscalerPlugin.Controllers
             _upscalerCore = upscalerCore;
             _videoProcessor = videoProcessor;
             _cacheManager = cacheManager;
+            _shaderUpscaler = shaderUpscaler;
         }
 
         /// <summary>
@@ -354,41 +358,200 @@ namespace JellyfinUpscalerPlugin.Controllers
         }
 
         /// <summary>
-        /// Process video with AI upscaling - NEW v1.4.0
+        /// Get list of available GLSL shaders
         /// </summary>
-        [HttpPost("process")]
-        [Consumes(MediaTypeNames.Application.Json)]
+        [HttpGet("shaders/list")]
         [Produces(MediaTypeNames.Application.Json)]
-        public async Task<ActionResult<object>> ProcessVideo([FromBody] VideoProcessRequest request)
+        public ActionResult<object> GetShadersList()
         {
             try
             {
-                _logger.LogInformation($"🚀 Processing video: {request.InputPath}");
+                _logger.LogInformation("Getting available GLSL shaders");
                 
-                var options = new VideoProcessingOptions
+                var shaders = _shaderUpscaler.GetAvailableShaders();
+                var presets = _shaderUpscaler.GetPresets();
+                
+                return Ok(new
                 {
-                    Model = request.Model ?? "auto",
-                    Scale = request.Scale ?? 2,
-                    Quality = request.Quality ?? "medium"
-                };
-                
-                var result = await _videoProcessor.ProcessVideoAsync(
-                    request.InputPath, 
-                    request.OutputPath, 
-                    options);
-                
-                return Ok(new 
-                {
-                    success = result.Success,
-                    outputPath = result.OutputPath,
-                    processingTime = result.ProcessingTime.TotalSeconds,
-                    method = result.Method.ToString(),
-                    error = result.Error
+                    success = true,
+                    shaders = shaders.Select(s => new
+                    {
+                        id = s.Id,
+                        name = s.Name,
+                        description = s.Description,
+                        category = s.Category,
+                        performance = s.Performance,
+                        quality = s.Quality,
+                        supportedScales = s.SupportedScales,
+                        features = s.Features
+                    }),
+                    presets = presets
                 });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Video processing failed");
+                _logger.LogError(ex, "Failed to get shaders list");
+                return StatusCode(500, new { success = false, error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get GLSL shader source code by name
+        /// </summary>
+        [HttpGet("shaders/{name}")]
+        [Produces(MediaTypeNames.Text.Plain)]
+        public ActionResult GetShaderSource(string name)
+        {
+            try
+            {
+                _logger.LogInformation($"Getting shader source for: {name}");
+                
+                var source = _shaderUpscaler.GetShaderSource(name);
+                
+                if (source == null)
+                {
+                    return NotFound(new { error = $"Shader '{name}' not found" });
+                }
+                
+                return Content(source, "text/plain");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Failed to get shader source: {name}");
+                return StatusCode(500, new { error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Apply shader to active playback session
+        /// </summary>
+        [HttpPost("shaders/apply")]
+        [Consumes(MediaTypeNames.Application.Json)]
+        [Produces(MediaTypeNames.Application.Json)]
+        public async Task<ActionResult<object>> ApplyShader([FromBody] ApplyShaderRequest request)
+        {
+            try
+            {
+                _logger.LogInformation($"Applying shader: {request.ShaderId} with scale: {request.Scale}");
+                
+                // Validate shader exists
+                var shader = _shaderUpscaler.GetShader(request.ShaderId);
+                if (shader == null)
+                {
+                    return BadRequest(new { success = false, error = $"Shader '{request.ShaderId}' not found" });
+                }
+                
+                // Validate shader
+                var validation = await _shaderUpscaler.ValidateShaderAsync(request.ShaderId);
+                if (!validation.IsValid)
+                {
+                    return BadRequest(new
+                    {
+                        success = false,
+                        error = "Shader validation failed",
+                        errors = validation.Errors
+                    });
+                }
+                
+                // Update configuration
+                var config = Plugin.Instance?.Configuration;
+                if (config != null)
+                {
+                    config.ActiveShader = request.ShaderId;
+                    config.Scale = request.Scale ?? config.Scale;
+                    Plugin.Instance?.SaveConfiguration();
+                }
+                
+                return Ok(new
+                {
+                    success = true,
+                    message = $"Shader '{shader.Name}' applied successfully",
+                    shaderId = request.ShaderId,
+                    scale = request.Scale ?? config?.Scale ?? 2
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to apply shader");
+                return StatusCode(500, new { success = false, error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get real-time shader performance metrics
+        /// </summary>
+        [HttpGet("shaders/performance")]
+        [Produces(MediaTypeNames.Application.Json)]
+        public ActionResult<object> GetShaderPerformance([FromQuery] string? shaderId = null)
+        {
+            try
+            {
+                _logger.LogInformation($"Getting shader performance metrics{(shaderId != null ? $" for: {shaderId}" : "")}");
+                
+                if (!string.IsNullOrEmpty(shaderId))
+                {
+                    var metrics = _shaderUpscaler.GetPerformanceMetrics(shaderId);
+                    if (metrics == null)
+                    {
+                        return NotFound(new { error = $"No performance data for shader '{shaderId}'" });
+                    }
+                    
+                    return Ok(metrics);
+                }
+                
+                // Return all metrics
+                var allMetrics = _shaderUpscaler.GetAllPerformanceMetrics();
+                
+                return Ok(new
+                {
+                    success = true,
+                    metrics = allMetrics
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get shader performance");
+                return StatusCode(500, new { success = false, error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Get recommended shader based on hardware
+        /// </summary>
+        [HttpGet("shaders/recommended")]
+        [Produces(MediaTypeNames.Application.Json)]
+        public async Task<ActionResult<object>> GetRecommendedShader()
+        {
+            try
+            {
+                _logger.LogInformation("Getting recommended shader based on hardware");
+                
+                var recommendedShader = await _shaderUpscaler.GetRecommendedShaderAsync();
+                var shader = _shaderUpscaler.GetShader(recommendedShader);
+                
+                if (shader == null)
+                {
+                    return Ok(new
+                    {
+                        success = false,
+                        error = "Could not determine recommended shader",
+                        fallback = "ravu"
+                    });
+                }
+                
+                return Ok(new
+                {
+                    success = true,
+                    recommendedShader = shader.Id,
+                    name = shader.Name,
+                    description = shader.Description,
+                    performance = shader.Performance,
+                    quality = shader.Quality
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to get recommended shader");
                 return StatusCode(500, new { success = false, error = ex.Message });
             }
         }
@@ -504,35 +667,6 @@ namespace JellyfinUpscalerPlugin.Controllers
             }
         }
 
-        /// <summary>
-        /// Pre-process video for caching - NEW v1.4.0
-        /// </summary>
-        [HttpPost("preprocess")]
-        [Consumes(MediaTypeNames.Application.Json)]
-        [Produces(MediaTypeNames.Application.Json)]
-        public async Task<ActionResult<object>> PreProcessVideo([FromBody] PreProcessRequest request)
-        {
-            try
-            {
-                var success = await _cacheManager.PreProcessContentAsync(
-                    request.InputPath,
-                    request.Model ?? "auto",
-                    request.Scale ?? 2,
-                    request.Quality ?? "medium",
-                    _videoProcessor);
-                
-                return Ok(new 
-                {
-                    success = success,
-                    message = success ? "Pre-processing completed" : "Pre-processing failed"
-                });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Pre-processing failed");
-                return StatusCode(500, new { success = false, error = ex.Message });
-            }
-        }
         [Produces(MediaTypeNames.Application.Json)]
         public ActionResult<object> GetComparisonPreview(string itemId, [FromQuery] string model = "fsrcnn", [FromQuery] int scale = 2)
         {
@@ -583,15 +717,13 @@ namespace JellyfinUpscalerPlugin.Controllers
         }
 
         /// <summary>
-        /// Enable/disable pre-processing cache - v1.4.0 NEW
+        /// Configure real-time shader settings
         /// </summary>
-        /// <param name="request">Pre-processing cache settings</param>
-        /// <returns>Cache operation result</returns>
         [HttpPost("cache")]
         [Produces(MediaTypeNames.Application.Json)]
-        public ActionResult<object> ConfigurePreProcessingCache([FromBody] PreProcessingCacheRequest request)
+        public ActionResult<object> ConfigureShaderSettings([FromBody] ShaderSettingsRequest request)
         {
-            _logger.LogInformation($"AI Upscaler: Configuring pre-processing cache - enabled: {request.Enabled}");
+            _logger.LogInformation($"AI Upscaler: Configuring real-time shader settings");
 
             try
             {
@@ -599,9 +731,9 @@ namespace JellyfinUpscalerPlugin.Controllers
                 var config = Plugin.Instance?.Configuration;
                 if (config != null)
                 {
-                    config.EnablePreProcessingCache = request.Enabled;
-                    config.PreProcessCacheSizeMB = request.SizeMB ?? config.PreProcessCacheSizeMB;
-                    config.PreProcessOnIdle = request.ProcessOnIdle ?? config.PreProcessOnIdle;
+                    config.ActiveShader = request.ActiveShader ?? config.ActiveShader;
+                    config.ShaderQuality = request.Quality ?? config.ShaderQuality;
+                    config.AutoSelectShader = request.AutoSelect ?? config.AutoSelectShader;
                     
                     Plugin.Instance?.SaveConfiguration();
                 }
@@ -609,14 +741,14 @@ namespace JellyfinUpscalerPlugin.Controllers
                 var response = new
                 {
                     success = true,
-                    message = "Pre-processing cache configured successfully",
+                    message = "Real-time shader settings configured successfully",
                     settings = new
                     {
-                        enabled = request.Enabled,
-                        sizeMB = request.SizeMB ?? 2048,
-                        processOnIdle = request.ProcessOnIdle ?? true,
-                        estimatedItems = (request.SizeMB ?? 2048) / 100, // Rough estimate
-                        status = request.Enabled ? "active" : "disabled"
+                        activeShader = config?.ActiveShader ?? "anime4k",
+                        quality = config?.ShaderQuality ?? "balanced",
+                        autoSelect = config?.AutoSelectShader ?? true,
+                        mode = "real-time",
+                        status = "active"
                     }
                 };
 
@@ -624,51 +756,49 @@ namespace JellyfinUpscalerPlugin.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to configure pre-processing cache");
-                return StatusCode(500, new { success = false, message = "Failed to configure cache", error = ex.Message });
+                _logger.LogError(ex, "Failed to configure shader settings");
+                return StatusCode(500, new { success = false, message = "Failed to configure settings", error = ex.Message });
             }
         }
 
         /// <summary>
-        /// Get fallback system status - v1.4.0 NEW
+        /// Get real-time shader system status
         /// </summary>
-        /// <returns>Fallback system information</returns>
         [HttpGet("fallback")]
         [Produces(MediaTypeNames.Application.Json)]
-        public ActionResult<object> GetFallbackStatus()
+        public ActionResult<object> GetShaderSystemStatus()
         {
-            _logger.LogInformation("AI Upscaler: Getting fallback system status");
+            _logger.LogInformation("AI Upscaler: Getting real-time shader system status");
 
             try
             {
                 var config = Plugin.Instance?.Configuration ?? new PluginConfiguration();
                 
-                var fallbackInfo = new
+                var shaderInfo = new
                 {
-                    enabled = config.EnableAutoFallback,
-                    triggerFPS = config.FallbackTriggerFPS,
-                    triggerCPU = config.FallbackTriggerCPU,
-                    fallbackModel = config.FallbackModel,
-                    currentStatus = "monitoring", // In real implementation, this would be dynamic
-                    recentFallbacks = new[]
-                    {
-                        new { timestamp = DateTime.UtcNow.AddMinutes(-15), reason = "High CPU usage (87%)", model = "fsrcnn-light" },
-                        new { timestamp = DateTime.UtcNow.AddHours(-2), reason = "Low FPS (18)", model = "srcnn" }
-                    },
+                    mode = "real-time",
+                    activeShader = config.ActiveShader,
+                    quality = config.ShaderQuality,
+                    autoSelect = config.AutoSelectShader,
+                    webGLEnabled = config.EnableWebGLShaders,
+                    performanceMonitoring = config.EnableShaderPerformanceMonitoring,
+                    currentStatus = "operational",
+                    availableShaders = _shaderUpscaler.GetAvailableShaders().Count,
                     recommendations = new[]
                     {
-                        "Current hardware can handle 720p→1080p upscaling reliably",
-                        "Consider enabling pre-processing cache for better performance",
-                        "Fallback triggers are well-configured for your system"
+                        "Real-time shader upscaling provides instant results with no pre-processing",
+                        "Shaders are applied client-side using WebGL2 for best performance",
+                        "Use 'ultra-fast' preset (RAVU) for low-end GPUs",
+                        "Use 'quality' preset (ACNet) for high-end GPUs (RTX 4070+)"
                     }
                 };
 
-                return Ok(fallbackInfo);
+                return Ok(shaderInfo);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to get fallback status");
-                return StatusCode(500, new { success = false, message = "Failed to get fallback status", error = ex.Message });
+                _logger.LogError(ex, "Failed to get shader system status");
+                return StatusCode(500, new { success = false, message = "Failed to get status", error = ex.Message });
             }
         }
 
@@ -895,34 +1025,22 @@ namespace JellyfinUpscalerPlugin.Controllers
     }
 
     /// <summary>
-    /// Video processing request model - v1.4.0 NEW
+    /// Apply shader request model
     /// </summary>
-    public class VideoProcessRequest
+    public class ApplyShaderRequest
     {
-        public string InputPath { get; set; } = "";
-        public string OutputPath { get; set; } = "";
-        public string? Model { get; set; }
+        public string ShaderId { get; set; } = "";
         public int? Scale { get; set; }
-        public string? Quality { get; set; }
+        public string? SessionId { get; set; }
     }
 
     /// <summary>
-    /// Pre-processing request model - v1.4.0 NEW
+    /// Shader settings request model
     /// </summary>
-    public class PreProcessRequest
+    public class ShaderSettingsRequest
     {
-        public string InputPath { get; set; } = "";
-        public string? Model { get; set; }
-        public int? Scale { get; set; }
+        public string? ActiveShader { get; set; }
         public string? Quality { get; set; }
-    }
-
-    // Request/Response classes
-    public class PreProcessingCacheRequest
-    {
-        public bool Enabled { get; set; }
-        public int? SizeMB { get; set; }
-        public bool? ProcessOnIdle { get; set; }
-        public List<string>? Resolutions { get; set; }
+        public bool? AutoSelect { get; set; }
     }
 }

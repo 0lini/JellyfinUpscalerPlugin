@@ -32,18 +32,15 @@ namespace JellyfinUpscalerPlugin
         public bool EnableBenchmarkConsole { get; set; } = true;
         public bool AutoSelectOptimalModel { get; set; } = true;
         
-        // v1.4.0 NEW: Pre-Processing Cache
-        public bool EnablePreProcessingCache { get; set; } = false;
-        public int PreProcessCacheSizeMB { get; set; } = 2048;
-        public bool PreProcessOnIdle { get; set; } = true;
-        public List<string> PreProcessResolutions { get; set; } = new List<string> { "720p", "1080p" };
-        
-        // v1.4.0 NEW: Fallback System for Low-End Hardware
-        public bool EnableAutoFallback { get; set; } = true;
-        public int FallbackTriggerFPS { get; set; } = 20;
-        public int FallbackTriggerCPU { get; set; } = 85;
-        public string FallbackModel { get; set; } = "fsrcnn-light";
-        public bool ShowFallbackNotifications { get; set; } = true;
+        // Real-time Shader Configuration
+        public string ActiveShader { get; set; } = "anime4k";
+        public int TargetFramerate { get; set; } = 60;
+        public bool EnableWebGLShaders { get; set; } = true;
+        public bool AutoSelectShader { get; set; } = true;
+        public string ShaderQuality { get; set; } = "balanced"; // ultra-fast/fast/balanced/quality
+        public bool EnableShaderPerformanceMonitoring { get; set; } = true;
+        public bool EnableClientSideShaders { get; set; } = true;
+        public bool EnableServerSideShaders { get; set; } = false;
         
         // v1.4.0 NEW: TV Remote & WebOS Optimization
         public bool EnableTVRemoteNavigation { get; set; } = true;
@@ -70,9 +67,7 @@ namespace JellyfinUpscalerPlugin
             "bicubic", "bilinear", "lanczos"
         };
         
-        // Performance Settings
-        public int MaxConcurrentStreams { get; set; } = 2;
-        public int CacheSizeMB { get; set; } = 1024;
+        // Performance Settings (Real-time only)
         public bool AutoDetectHardware { get; set; } = true;
         public string PreferredEncoder { get; set; } = "auto";
         
@@ -87,11 +82,8 @@ namespace JellyfinUpscalerPlugin
         
         // Additional Settings
         public bool EnableDebugLogging { get; set; } = false;
-        public bool EnablePerformanceMetrics { get; set; } = false;
+        public bool EnablePerformanceMetrics { get; set; } = true;
         public bool EnableAPIAccess { get; set; } = true;
-        public bool EnableCache { get; set; } = true;
-        public bool AutoCleanupCache { get; set; } = true;
-        public int MaxCacheAgeDays { get; set; } = 7;
         
         // Error Handling & Stability
         public bool EnableErrorReporting { get; set; } = true;

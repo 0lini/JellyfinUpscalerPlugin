@@ -1,0 +1,149 @@
+{
+  "shaders": [
+    {
+      "id": "anime4k",
+      "name": "Anime4K",
+      "description": "Optimized for anime and cartoon content with line detection",
+      "category": "anime",
+      "performance": "fast",
+      "quality": "high",
+      "targetFPS": {
+        "gtx1060": 30,
+        "rtx2060": 60,
+        "rtx3060": 60,
+        "rtx4070": 60
+      },
+      "supportedScales": [2, 3, 4],
+      "uniforms": {
+        "uStrength": {
+          "type": "float",
+          "default": 0.8,
+          "min": 0.0,
+          "max": 1.0,
+          "description": "Shader strength/intensity"
+        }
+      },
+      "features": [
+        "Gradient-based upscaling",
+        "Line preservation",
+        "Bilateral filtering",
+        "Edge-aware sharpening"
+      ]
+    },
+    {
+      "id": "fsrcnn",
+      "name": "FSRCNN",
+      "description": "Fast Super-Resolution CNN for general purpose content",
+      "category": "general",
+      "performance": "balanced",
+      "quality": "high",
+      "targetFPS": {
+        "gtx1060": 20,
+        "rtx2060": 30,
+        "rtx3060": 45,
+        "rtx4070": 60
+      },
+      "supportedScales": [2, 3, 4],
+      "uniforms": {},
+      "features": [
+        "CNN-inspired feature extraction",
+        "Bicubic interpolation",
+        "Edge-aware sharpening",
+        "Non-linear mapping"
+      ]
+    },
+    {
+      "id": "ravu",
+      "name": "RAVU",
+      "description": "Rapid and Accurate Video Upscaling for lightweight performance",
+      "category": "lightweight",
+      "performance": "ultra-fast",
+      "quality": "medium",
+      "targetFPS": {
+        "gtx1060": 60,
+        "rtx2060": 60,
+        "rtx3060": 60,
+        "rtx4070": 60
+      },
+      "supportedScales": [2, 3],
+      "uniforms": {},
+      "features": [
+        "EWA sampling",
+        "Mitchell-Netravali filter",
+        "Adaptive sharpening",
+        "Low GPU requirements"
+      ]
+    },
+    {
+      "id": "acnet",
+      "name": "ACNet",
+      "description": "Adaptive Content-aware Network for highest quality",
+      "category": "quality",
+      "performance": "slow",
+      "quality": "very-high",
+      "targetFPS": {
+        "gtx1060": 10,
+        "rtx2060": 20,
+        "rtx3060": 30,
+        "rtx4070": 45
+      },
+      "supportedScales": [2, 4],
+      "uniforms": {},
+      "features": [
+        "Content classification",
+        "Directional interpolation",
+        "Texture-aware processing",
+        "Sobel edge detection"
+      ]
+    }
+  ],
+  "presets": {
+    "ultra-fast": {
+      "shader": "ravu",
+      "scale": 2,
+      "description": "60fps on GTX 1060+, good quality"
+    },
+    "fast": {
+      "shader": "anime4k",
+      "scale": 2,
+      "description": "30-60fps on RTX 2060+, anime optimized"
+    },
+    "balanced": {
+      "shader": "fsrcnn",
+      "scale": 2,
+      "description": "30fps on RTX 3060+, general purpose"
+    },
+    "quality": {
+      "shader": "acnet",
+      "scale": 2,
+      "description": "30fps on RTX 4070+, highest quality"
+    }
+  },
+  "hardwareRecommendations": {
+    "gtx1060": {
+      "recommendedShader": "ravu",
+      "maxScale": 2,
+      "preset": "ultra-fast"
+    },
+    "rtx2060": {
+      "recommendedShader": "anime4k",
+      "maxScale": 3,
+      "preset": "fast"
+    },
+    "rtx3060": {
+      "recommendedShader": "fsrcnn",
+      "maxScale": 3,
+      "preset": "balanced"
+    },
+    "rtx4070": {
+      "recommendedShader": "acnet",
+      "maxScale": 4,
+      "preset": "quality"
+    },
+    "default": {
+      "recommendedShader": "ravu",
+      "maxScale": 2,
+      "preset": "ultra-fast"
+    }
+  }
+}

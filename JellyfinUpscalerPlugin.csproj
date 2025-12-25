@@ -52,6 +52,12 @@
     <EmbeddedResource Include="Configuration\sidebar-integration.js" />
   </ItemGroup>
 
+  <!-- Embedded GLSL shaders -->
+  <ItemGroup>
+    <None Include="Shaders\*.glsl" CopyToOutputDirectory="Always" />
+    <None Include="Shaders\shader-config.json" CopyToOutputDirectory="Always" />
+  </ItemGroup>
+
   <ItemGroup>
     <None Include="thumb.jpg" CopyToOutputDirectory="Always" />
     <None Include="meta.json" CopyToOutputDirectory="Always" />
